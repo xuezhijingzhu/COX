@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cox Scoring Model Calculator</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: {} },
+        }
+    </script>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; transition: background-color 0.3s, color 0.3s; }
+        .fade-in { animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        /* Print styles */
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white !important; }
+            .print-border { border: 1px solid #e5e7eb !important; box-shadow: none !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen py-8 px-4 sm:py-12">
+
+<div class="max-w-3xl mx-auto space-y-6">
+    <!-- Header -->
+    <header class="mb-8">
+        <h1 class="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-3">
+            <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+            Cox Scoring Model
+        </h1>
+        <p class="text-slate-600 mt-2">Simplified Binary Calculator for Medical Risk Stratification</p>
+    </header>
+
+    <!-- App Container -->
+    <div id="app" class="space-y-6"></div>
+
+    <!-- Footer Disclaimer -->
+    <footer class="mt-12 text-center">
+        <div class="bg-slate-100 rounded-xl p-4 inline-flex items-center gap-3 text-sm text-slate-600 font-medium border border-slate-200 print-border max-w-2xl text-left">
+            <svg class="w-5 h-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            <p><strong>Disclaimer:</strong> This tool is for research and educational use only and should not replace clinical judgment.</p>
+        </div>
+    </footer>
+</div>
+
+<script>
+    /**
+     * CONFIGURATION
+     * Edit these values to adjust cutoffs, points, and structural rules.
+     */
+    const CONFIG = {
+        cutoffs: { age: 67, afp: 14.62, ca19_9: 20.75, sma: 164.7, smd: 34.93, lsr: 1.1956 },
+        points: { age: 2, transfusion: 1, afp: 1, ca19_9: 2, sma: 3, smd: 1, lsr: 1 },
+        riskGroups: {
+            low: { min: 0, max: 5, label: 'Low risk', desc: 'Low-risk group based on the current scoring system.', classes: 'bg-emerald-50 text-emerald-800 border-emerald-200', badge: 'bg-emerald-500' },
+            high: { min: 6, max: 11, label: 'High risk', desc: 'High-risk group based on the current scoring system.', classes: 'bg-rose-50 text-rose-800 border-rose-200', badge: 'bg-rose-500' }
+        }
+    };
+
+    /**
+     * STATE MANAGEMENT & UI RENDERING
+     */
+    const state = {
+        age: '', transfusion: '', afp: '', ca19_9: '', sma: '', smd: '', lsr: '',
+        errors: {},
+        result: null
+    };
+
+    function renderInput(id, label, unit) {
+        let isError = state.errors[id];
+        return `
+            <div class="space-y-1.5">
+                <label class="block text-sm font-medium text-slate-700">${label} ${unit ? `<span class="text-slate-500 font-normal">(${unit})</span>` : ''}</label>
+                <div class="relative">
+                    <input type="number" step="any" id="${id}" value="${state[id]}" oninput="updateState('${id}', this.value)" 
+                           class="w-full px-3 py-2.5 bg-white border rounded-lg shadow-sm focus:outline-none focus:ring-2 transition-all ${isError ? 'border-rose-500 focus:ring-rose-500/20' : 'border-slate-300 focus:ring-blue-500/20 focus:border-blue-500'}" placeholder="...">
+                </div>
+            </div>`;
+    }
+
+    function renderRadio(id, label) {
+        let isError = state.errors[id];
+        return `
+            <div class="space-y-1.5">
+                <label class="block text-sm font-medium text-slate-700">${label}</label>
+                <div class="flex gap-6 h-11 items-center bg-slate-50 rounded-lg px-4 border ${isError ? 'border-rose-500' : 'border-slate-200'}">
+                    <label class="flex items-center gap-2 cursor-pointer flex-1">
+                        <input type="radio" name="${id}" value="No" ${state[id] === 'No' ? 'checked' : ''} onchange="updateState('${id}', 'No')" class="w-4 h-4 text-blue-600"> 
+                        <span class="text-sm font-medium">No</span></label>
+                    <label class="flex items-center gap-2 cursor-pointer flex-1">
+                        <input type="radio" name="${id}" value="Yes" ${state[id] === 'Yes' ? 'checked' : ''} onchange="updateState('${id}', 'Yes')" class="w-4 h-4 text-blue-600"> 
+                        <span class="text-sm font-medium">Yes</span></label>
+                </div>
+            </div>`;
+    }
+
+    function updateState(key, value) {
+        state[key] = value;
+        delete state.errors[key];
+        render(); // Optimistically clear errors on type
+    }
+
+    function calculate() {
+        state.errors = {};
+        let isValid = true;
+        ['age', 'transfusion', 'afp', 'ca19_9', 'sma', 'smd', 'lsr'].forEach(key => {
+            if (!state[key]) { state.errors[key] = true; isValid = false; }
+        });
+
+        if (!isValid) return render();
+
+        let score = 0, details = [];
+        const v = { age: parseFloat(state.age), afp: parseFloat(state.afp), ca19_9: parseFloat(state.ca19_9), sma: parseFloat(state.sma), smd: parseFloat(state.smd), lsr: parseFloat(state.lsr) };
+
+        if (v.age >= CONFIG.cutoffs.age) { score += CONFIG.points.age; details.push(['Age', CONFIG.points.age, `>= ${CONFIG.cutoffs.age}`]); } else { details.push(['Age', 0, `< ${CONFIG.cutoffs.age}`]); }
+        if (state.transfusion === 'Yes') { score += CONFIG.points.transfusion; details.push(['Intraoperative Transfusion', CONFIG.points.transfusion, 'Yes']); } else { details.push(['Intraoperative Transfusion', 0, 'No']); }
+        if (v.afp >= CONFIG.cutoffs.afp) { score += CONFIG.points.afp; details.push(['AFP', CONFIG.points.afp, `>= ${CONFIG.cutoffs.afp}`]); } else { details.push(['AFP', 0, `< ${CONFIG.cutoffs.afp}`]); }
+        if (v.ca19_9 >= CONFIG.cutoffs.ca19_9) { score += CONFIG.points.ca19_9; details.push(['CA 19-9', CONFIG.points.ca19_9, `>= ${CONFIG.cutoffs.ca19_9}`]); } else { details.push(['CA 19-9', 0, `< ${CONFIG.cutoffs.ca19_9}`]); }
+        if (v.sma < CONFIG.cutoffs.sma) { score += CONFIG.points.sma; details.push(['SMA', CONFIG.points.sma, `< ${CONFIG.cutoffs.sma}`]); } else { details.push(['SMA', 0, `>= ${CONFIG.cutoffs.sma}`]); }
+        if (v.smd < CONFIG.cutoffs.smd) { score += CONFIG.points.smd; details.push(['SMD', CONFIG.points.smd, `< ${CONFIG.cutoffs.smd}`]); } else { details.push(['SMD', 0, `>= ${CONFIG.cutoffs.smd}`]); }
+        if (v.lsr >= CONFIG.cutoffs.lsr) { score += CONFIG.points.lsr; details.push(['LSR', CONFIG.points.lsr, `>= ${CONFIG.cutoffs.lsr}`]); } else { details.push(['LSR', 0, `< ${CONFIG.cutoffs.lsr}`]); }
+
+        const group = score >= CONFIG.riskGroups.high.min ? CONFIG.riskGroups.high : CONFIG.riskGroups.low;
+        state.result = { score, group, details };
+        render();
+        setTimeout(() => document.getElementById('result-card')?.scrollIntoView({ behavior: 'smooth' }), 50);
+    }
+
+    function reset() {
+        Object.keys(state).forEach(k => k === 'errors' || k === 'result' ? state[k] = (k==='errors'?{}:null) : state[k] = '');
+        render();
+    }
+
+    function render() {
+        const hasErrors = Object.keys(state.errors).length > 0;
+        
+        let html = `
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8 print-border">
+                <h2 class="text-lg font-semibold text-slate-800 mb-6 border-b border-slate-100 pb-4">Patient Parameters</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6 mb-8">
+                    ${renderInput('age', 'Age', 'years')}
+                    ${renderRadio('transfusion', 'Intraoperative Transfusion')}
+                    ${renderInput('afp', 'AFP', 'ng/mL')}
+                    ${renderInput('ca19_9', 'CA 19-9', 'U/mL')}
+                    ${renderInput('sma', 'Skeletal Muscle Area', 'cm²')}
+                    ${renderInput('smd', 'Skeletal Muscle Density', 'HU')}
+                    ${renderInput('lsr', 'Liver-to-Spleen Ratio', '')}
+                </div>
+                <!-- Action Area -->
+                <div class="flex flex-col sm:flex-row gap-3 pt-6 border-t border-slate-100 no-print">
+                    <button onclick="calculate()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-xl shadow-sm transition-all focus:ring-2 focus:ring-blue-500/50">Calculate Score</button>
+                    <button onclick="reset()" class="sm:w-32 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-3 px-4 rounded-xl transition-colors">Reset</button>
+                </div>
+                ${hasErrors ? '<p class="mt-3 text-sm text-rose-600 font-medium text-center no-print">Please complete all required fields.</p>' : ''}
+            </div>
+        `;
+
+        if (state.result) {
+            const { score, group, details } = state.result;
+            html += `
+                <div id="result-card" class="rounded-2xl border p-6 md:p-8 ${group.classes} fade-in print-border print:bg-white print:text-black">
+                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8">
+                        <div>
+                            <h3 class="text-sm font-bold uppercase tracking-widest opacity-70 mb-2">Risk Stratification Result</h3>
+                            <div class="flex items-center gap-4">
+                                <span class="text-4xl md:text-5xl font-extrabold">${group.label}</span>
+                                <div class="w-3.5 h-3.5 rounded-full ${group.badge} shadow-md no-print"></div>
+                            </div>
+                            <p class="mt-3 text-sm md:text-base font-medium opacity-80">${group.desc}</p>
+                        </div>
+                        <div class="bg-white/60 rounded-2xl p-5 border border-current/10 text-center min-w-[150px] shadow-sm">
+                            <div class="text-xs font-bold uppercase tracking-widest opacity-70 mb-2">Total Score</div>
+                            <div class="text-5xl md:text-6xl font-black">${score}</div>
+                            <div class="text-sm font-medium opacity-60 mt-2">out of 11</div>
+                        </div>
+                    </div>
+                    <div class="bg-white/60 rounded-xl p-5 md:p-6 border border-current/10">
+                        <h4 class="text-sm font-bold uppercase tracking-widest opacity-70 mb-4">Point Breakdown</h4>
+                        <ul class="space-y-3">
+                            ${details.map(d => `
+                                <li class="flex flex-col sm:flex-row sm:items-center justify-between text-sm sm:text-base border-b border-current/10 pb-3 last:border-0 last:pb-0 gap-1">
+                                    <span class="font-semibold">${d[0]}</span>
+                                    <div class="flex sm:items-center justify-between w-full sm:w-auto gap-4">
+                                        <span class="opacity-70 text-xs sm:text-sm font-mono bg-current/5 px-2 py-0.5 rounded">${d[2]}</span>
+                                        <span class="font-bold min-w-[70px] text-right ${d[1]>0?'opacity-100':'opacity-40'}">${d[1]>0 ? '+'+d[1] : '0'} pts</span>
+                                    </div>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                </div>
+            `;
+        }
+
+        document.getElementById('app').innerHTML = html;
+        
+        // Restore focus to input if possible by setting id correctly, omitted for simplicity here
+    }
+
+    // Initial render
+    render();
+</script>
+</body>
+</html>
